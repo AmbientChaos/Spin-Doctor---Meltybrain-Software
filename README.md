@@ -1,5 +1,9 @@
 # Spin-Doctor---Meltybrain-Software
 
+**Currently mostly untested, pending arrival and assembly of the hardware components.**
+
+Thanks to [@swallenhardware](https://github.com/swallenhardware) for providing his code and build log which helped make this possible
+
 ## External libraries used:
 
 [Sparkfun LIS331](https://github.com/sparkfun/Triple_Axis_Accelerometer_Breakout-H3LIS331DL)
