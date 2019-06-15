@@ -14,10 +14,18 @@ void readReceiver(){
 }
 
 //limit throttle pulse widths to 1000-2000ms
+
+byte signalLost()
+{
+  if(RC_THROT < 995) return 1;
+  else return 0;
+  //Bind ESC with throttle travel at absolute minimum, below 1000ms pulses
+  //then return travel to normal.  On losing signal it will give an abnormal result.
+}
    
 int volatile return_THROT()
 {
-	  return max(1000, min(2000, RC_THROT));
+	  return min(2000, RC_THROT); //max(1000, min(2000, RC_THROT));
 }
 
 int volatile return_AILER()
