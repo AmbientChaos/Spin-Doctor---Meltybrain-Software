@@ -1,76 +1,104 @@
-#include <SparkFun_LIS331.h>
-#include <Wire.h>
+#include <i2c_t3.h>
 
-const byte arraySize = 2; //2 for triangular integration
-unsigned long accelTime[arraySize] = {0}; //time between accelerometer measurements
-uint16_t degreePeriod[arraySize] = {0}; //period in microseconds per degree
-uint16_t accelAngle[arraySize] = {0}; //current angle calculated from accelerometer
-LIS331 accel;
+#define accelAddress 0x19
+
+#define CTRL_REG1        0x20
+#define CTRL_REG2        0x21
+#define CTRL_REG3        0x22
+#define CTRL_REG4        0x23
+#define CTRL_REG5        0x24
+#define HP_FILTER_RESET  0x25
+#define REFERENCE        0x26
+#define STATUS_REG       0x27
+#define OUT_X_L          0x28
+#define OUT_X_H          0x29
+#define OUT_Y_L          0x2A
+#define OUT_Y_H          0x2B
+#define OUT_Z_L          0x2C
+#define OUT_Z_H          0x2D
+#define INT1_CFG         0x30
+#define INT1_SRC         0x31
+#define INT1_THS         0x32
+#define INT1_DUR         0x33
+#define INT2_CFG         0x34
+#define INT2_SRC         0x35
+#define INT2_THS         0x36
+#define INT2_DUR         0x37
+
+unsigned long accelNewTime = 0;
+int16_t flipCount = 0;
+
+void readAccel(byte regAddress, byte* data, uint8_t bytes){
+  Wire.beginTransmission(accelAddress);
+  Wire.write(regAddress | 0x80);//
+  Wire.sendTransmission();
+  Wire.sendRequest(accelAddress, bytes);
+  while(Wire.available()) *(data++) = Wire.readByte();
+}
+
+void writeAccel(byte regAddress, byte data){
+  Wire.beginTransmission(accelAddress);
+  Wire.write(regAddress);
+  Wire.write(data);
+  Wire.endTransmission();
+}
+
+void getAccel(int16_t& xAccel, int16_t& yAccel, int16_t& zAccel){
+  uint8_t data[6];
+  readAccel(OUT_X_L, data, 6);
+  xAccel = (data[0] | data[1] << 8) >> 4;
+  yAccel = (data[2] | data[3] << 8) >> 4;
+  zAccel = (data[4] | data[5] << 8) >> 4;
+}
 
 void accelISR(){
-  static int16_t xAccel; //vertical acceleration - detect flips - using interrupt pin instead
-  static int16_t yAccel; //tangential acceleration - not used
-  for(int i=1; i>arraySize; i++) { //shift old data down
-      accelTime[i] = accelTime[i-1];
-      degreePeriod[i] = degreePeriod[i-1];
-    }
-  noInterrupts();
-  accelTime[0] = micros(); //add new data
-  accel.readAxes(xAccel, yAccel, zAccel, false, false, true); //get z accel data
-  if(digitalRead(ACCEL_FLIP) == LOW) flipped = 1; //record orientation
-  else if(digitalRead(ACCEL_FLIP) == HIGH) flipped = -1;
-  interrupts();
-  //calculate rotation speed(period) from accelerometer
-  degreePeriod[0] = (accelCalA * exp((double)(zAccel / accelCalB)) + accelCalC); 
+  accelNewTime = micros();
   accelNew = true;
 }
 
 void accelSetup(){
-  Wire.begin();
-  
-  //set the registers manually because I don't like the LIS331 library not exposing all of the options
-  Wire.beginTransmission(0x19);
-  Wire.write(CTRL_REG1);
-  Wire.write(0x3D); //normal mode, 1000Hz, X and Z axes enabled
-  Wire.write(CTRL_REG4);
-  Wire.write(0xB0); //Block Data Update on, full scale to 400g
-  Wire.endTransmission();
-  
-  //set the rest of the options with the LIS331 library
-  accel.setI2CAddr(0x19);
-  accel.begin(LIS331::USE_I2C);
-  accel.intSrcConfig(LIS331::DRDY, 1); //interrupt pin 1 out to show new data
-  accel.latchInterrupt(false, 1);
+  Wire.begin(I2C_MASTER, 0x00, I2C_PINS_18_19, I2C_PULLUP_EXT, 1800000, I2C_OP_MODE_IMM);
+  for (int i = 0x21; i < 0x25; i++) writeAccel(i,(uint8_t)0);
+  for (int i = 0x30; i < 0x37; i++) writeAccel(i,(uint8_t)0);
+  writeAccel(CTRL_REG1, B00111101); //normal mode, 1000Hz, X and Z enabled
+  writeAccel(CTRL_REG2, B00111011); //high pass filter enabled
+  writeAccel(CTRL_REG3, B00000010); //Data ready putput pin enabled
+  writeAccel(CTRL_REG4, B10110000); //BDU enabled, 400G range
+  //writeAccel(INT2_CFG, B00000001); //X low interrupt
+  //writeAccel(INT2_THS, B00111111); //threshold at 63/127 range
+  //writeAccel(INT2_DURATION, B01100100); //thresh duration 100 samples
+  //pinMode(ACCEL_FLIP, INPUT);
   pinMode(ACCEL_NEW,INPUT);
   attachInterrupt(digitalPinToInterrupt(ACCEL_NEW), accelISR, RISING);
-  accel.intSrcConfig(LIS331::INT_SRC, 2); //interrupt pin 2 out to show flipped
-  accel.setIntDuration(500, 2); //0.5 sec before triggering at 1000Hz
-  accel.setIntThreshold(0x40, 2); //threshold set for a reading of below 0g, 64 on a scale of 0 to 127
-  accel.latchInterrupt(false, 2);
-  accel.enableInterrupt(LIS331::X_AXIS, LIS331::TRIG_ON_LOW, 2, true);
-  pinMode(ACCEL_FLIP, INPUT);
 }
 
-//I wanted an accelerometer read function that didn't read unused axes
-void LIS331::readAxes(int16_t &x, int16_t &y, int16_t &z, bool getX, bool getY, bool getZ)
-{
-  uint8_t data[2]; // create a buffer for our incoming data
-  if(getX) {
-    LIS331_read(OUT_X_L, &data[0], 1);
-    LIS331_read(OUT_X_H, &data[1], 1);
-    x = data[0] | data[1] << 8;
-    x = x >> 4;
+void runAccel(){
+  static int16_t xAccel, yAccel;
+  
+  //shift old data down
+  for(int i=1; i>arraySize; i++) { //shift old data down
+      accelTime[i] = accelTime[i-1];
+      degreePeriod[i] = degreePeriod[i-1];
   }
-  if(getY) {
-    LIS331_read(OUT_Y_L, &data[0], 1);
-    LIS331_read(OUT_Y_H, &data[1], 1);
-    y = data[0] | data[1] << 8;
-    y = y >> 4;
+  
+  //get new data
+  getAccel(xAccel, yAccel, zAccel);
+  accelTime[0] = accelNewTime;
+
+  //record orientation, 100 sample delay to avoid spurious flips
+  if(xAccel > 0 && flipped != 1){
+    if(flipCount < 0) flipCount = 0;
+    if(flipCount < 100) flipCount ++;
+    if(flipCount >= 100) flipped = 1;
   }
-  if(getZ) {
-    LIS331_read(OUT_Z_L, &data[0], 1);
-    LIS331_read(OUT_Z_H, &data[1], 1);
-    z = data[0] | data[1] << 8;
-    z = z >> 4;
+  else if(xAccel < 0 && flipped != -1){
+    if(flipCount > 0) flipCount = 0;
+    if(flipCount > -100) flipCount --;
+    if(flipCount <= -100) flipped = -1;
   }
+  else flipCount = 0;
+
+  //calculate rotation speed(period) from accelerometer
+  degreePeriod[0] = (accelCalA * exp((double)(zAccel / accelCalB)) + accelCalC); 
+  accelNew = false;
 }

@@ -6,13 +6,13 @@ Thanks to [@swallenhardware](https://github.com/swallenhardware) for providing h
 
 ## External libraries used:
 
-[Sparkfun LIS331](https://github.com/sparkfun/Triple_Axis_Accelerometer_Breakout-H3LIS331DL)
+[i2c_t3](https://github.com/nox771/i2c_t3)
 
 [LinearRegressino](https://github.com/cubiwan/LinearRegressino)
 
 [CPPM-RX](https://github.com/daPhoosa/CPPM-RX)
 
-DShot routines from [bladeBench](https://github.com/Extent421/bladeBench), updated for Teensy pins
+[bladeBench](https://github.com/Extent421/bladeBench) DShot routines, updated for Teensy pins
 
 ## Hardware used:
 
@@ -24,7 +24,7 @@ SparkFun H3LIS331DL accelerometer
 
 DShot600 compatible ESC
 
-750kv brushless motor
+750kv brushless motors
 
 ## Usage:
 The gear and flap switches are used to determine the operating mode, with a safe mode for signal loss or startup in active modes
