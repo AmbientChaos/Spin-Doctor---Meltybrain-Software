@@ -1,7 +1,10 @@
+//Teensy 3.X specific I2C Wire library
 #include <i2c_t3.h>
 
+//default address for the accelerometer
 #define accelAddress 0x19
 
+//accelerometer register addresses
 #define CTRL_REG1        0x20
 #define CTRL_REG2        0x21
 #define CTRL_REG3        0x22
@@ -25,10 +28,17 @@
 #define INT2_THS         0x36
 #define INT2_DUR         0x37
 
+//Accelerometer output offset correction values
+#define X_OFFSET         19
+#define Y_OFFSET         15
+#define Z_OFFSET         -21
+
+
+
 unsigned long accelNewTime = 0;
-int16_t flipCount = 0;
 
 void readAccel(byte regAddress, byte* data, uint8_t bytes){
+  //read bytes from accelerometer register
   Wire.beginTransmission(accelAddress);
   Wire.write(regAddress | 0x80);//
   Wire.sendTransmission();
@@ -37,6 +47,7 @@ void readAccel(byte regAddress, byte* data, uint8_t bytes){
 }
 
 void writeAccel(byte regAddress, byte data){
+  //write byte to accelerometer register
   Wire.beginTransmission(accelAddress);
   Wire.write(regAddress);
   Wire.write(data);
@@ -44,39 +55,61 @@ void writeAccel(byte regAddress, byte data){
 }
 
 void getAccel(int16_t& xAccel, int16_t& yAccel, int16_t& zAccel){
+  //read axis output values from accelerometer
+  
   uint8_t data[6];
+  static uint32_t xSum = 0;
+  static uint8_t xCount = 0;
+  
+  //input buffers for smoothing filters
+  static int16_t xHist[100], zHist[5];
+
+  //read bytes from accelerometer
   readAccel(OUT_X_L, data, 6);
-  xAccel = (data[0] | data[1] << 8) >> 4;
-  yAccel = (data[2] | data[3] << 8) >> 4;
-  zAccel = (data[4] | data[5] << 8) >> 4;
+
+  //100 point square averaging window on X axis to smooth orientation data
+  xSum -= xHist[xCount];
+  xHist[xCount] = ((int16_t)(data[4] | data[5] << 8) >> 4) + X_OFFSET;
+  xSum += xHist[xCount];
+  xAccel = xSum/100; 
+  xCount++;
+  if(xCount >= 100) xCount = 0;
+
+  //5 point triangle averaging window to smooth Z axis data
+  for(int i = 4; i > 0; i--) zHist[i] = zHist[i-1];
+  zHist[0] = ((int16_t)(data[4] | data[5] << 8) >> 4) + Z_OFFSET;
+  zAccel = (zHist[0] + 2 * zHist[1] + 3 * zHist[2] + 2 * zHist[3] + zHist[4])/9; 
+  
+  //unfiltered axis data
+  /*xAccel = ((int16_t)(data[0] | data[1] << 8) >> 4) + X_OFFSET;
+  yAccel = ((int16_t)(data[2] | data[3] << 8) >> 4) + Y_OFFSET;
+  zAccel = ((int16_t)(data[4] | data[5] << 8) >> 4) + Z_OFFSET;*/
 }
 
 void accelISR(){
+  //record time of new measurement and set flag to read data
   accelNewTime = micros();
   accelNew = true;
 }
 
 void accelSetup(){
+  //I2C settings and write to accelerometer registers
   Wire.begin(I2C_MASTER, 0x00, I2C_PINS_18_19, I2C_PULLUP_EXT, 1800000, I2C_OP_MODE_IMM);
-  for (int i = 0x21; i < 0x25; i++) writeAccel(i,(uint8_t)0);
-  for (int i = 0x30; i < 0x37; i++) writeAccel(i,(uint8_t)0);
   writeAccel(CTRL_REG1, B00111101); //normal mode, 1000Hz, X and Z enabled
-  writeAccel(CTRL_REG2, B00111011); //high pass filter enabled
-  writeAccel(CTRL_REG3, B00000010); //Data ready putput pin enabled
+  writeAccel(CTRL_REG2, B00110000); //high pass filter enabled
+  writeAccel(CTRL_REG3, B00000010); //Data ready output pin enabled
   writeAccel(CTRL_REG4, B10110000); //BDU enabled, 400G range
-  //writeAccel(INT2_CFG, B00000001); //X low interrupt
-  //writeAccel(INT2_THS, B00111111); //threshold at 63/127 range
-  //writeAccel(INT2_DURATION, B01100100); //thresh duration 100 samples
-  //pinMode(ACCEL_FLIP, INPUT);
   pinMode(ACCEL_NEW,INPUT);
   attachInterrupt(digitalPinToInterrupt(ACCEL_NEW), accelISR, RISING);
 }
 
 void runAccel(){
+  //collect new accelerometer data and determine rotation speed and orientation
   static int16_t xAccel, yAccel;
+  accelNew = false;
   
   //shift old data down
-  for(int i=1; i>arraySize; i++) { //shift old data down
+  for(int i=arraySize - 1; i>0; i--) { //shift old data down
       accelTime[i] = accelTime[i-1];
       degreePeriod[i] = degreePeriod[i-1];
   }
@@ -85,20 +118,10 @@ void runAccel(){
   getAccel(xAccel, yAccel, zAccel);
   accelTime[0] = accelNewTime;
 
-  //record orientation, 100 sample delay to avoid spurious flips
-  if(xAccel > 0 && flipped != 1){
-    if(flipCount < 0) flipCount = 0;
-    if(flipCount < 100) flipCount ++;
-    if(flipCount >= 100) flipped = 1;
-  }
-  else if(xAccel < 0 && flipped != -1){
-    if(flipCount > 0) flipCount = 0;
-    if(flipCount > -100) flipCount --;
-    if(flipCount <= -100) flipped = -1;
-  }
-  else flipCount = 0;
-
   //calculate rotation speed(period) from accelerometer
   degreePeriod[0] = (accelCalA * exp((double)(zAccel / accelCalB)) + accelCalC); 
-  accelNew = false;
+
+  //determine current orientation
+  if(xAccel >= 0) flipped = 1;
+  else flipped = -1;
 }
