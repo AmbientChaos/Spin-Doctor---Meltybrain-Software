@@ -27,8 +27,10 @@ SOFTWARE.*/
 
 #define FTM_PINCFG(pin) FTM_PINCFG2(pin)
 #define FTM_PINCFG2(pin) CORE_PIN ## pin ## _CONFIG
-#define ESC_1_PIN  15
-#define ESC_2_PIN  14
+
+//FTM0_CH2 and //FTM0_CH3
+#define ESC_1_PIN  9
+#define ESC_2_PIN  10
 
 #define FTM_SC_PRESCALE1      0x00
 #define FTM_SC_PRESCALE2      0x01
@@ -81,8 +83,10 @@ void setupDshotDMA(void){
   FTM0_SC = FTM_SC_CLKS(1) | FTM_SC_PS(0);  //set clock source 1 and prescale 0
   FTM0_C1SC = FTM_CSC_DMA | FTM_CSC_PWM_EDGE_HI | FTM_CSC_IRQ;
   FTM0_C2SC = FTM_CSC_PWM_EDGE_HI;
+  FTM0_C3SC = FTM_CSC_PWM_EDGE_HI;
   FTM0_C1V = (mod * 250) >> 8; // channel 1 drives the DMA transfer, trigger right at the end of each pulse
   FTM0_C2V = 0;
+  FTM0_C3V = 0;
 
   dma.sourceBuffer((uint8_t *)dshotCommandBuffer, DSHOT_BUFFER_LENGTH);
   dma.destination(FTM0_C2V); //feed to channel 2 PWM length
@@ -92,9 +96,8 @@ void setupDshotDMA(void){
 
   dma.triggerAtHardwareEvent(DMAMUX_SOURCE_FTM0_CH1);
 
-  //FTM_PINCFG(ESC_1_PIN) = PORT_PCR_MUX(4) | PORT_PCR_DSE | PORT_PCR_SRE;
-  FTM_PINCFG(ESC_1_PIN) = PORT_PCR_DSE | PORT_PCR_SRE;
-  FTM_PINCFG(ESC_2_PIN) = PORT_PCR_DSE | PORT_PCR_SRE;
+  FTM_PINCFG(ESC_1_PIN) = PORT_PCR_MUX(4) | PORT_PCR_DSE | PORT_PCR_SRE;
+  FTM_PINCFG(ESC_2_PIN) = PORT_PCR_MUX(4) | PORT_PCR_DSE | PORT_PCR_SRE;
 }
 
 void writeDshot(void){
@@ -126,45 +129,19 @@ void fillDshotBuffer(uint16_t value){
   }
 }
 
-void dshotThrottle(uint16_t value){
-  lastDshotMotorValue = value;
-  dshotUpdated = true;
-  dshotOut(value+47);
-}
-
-void dshotOut(uint16_t value){
- uint16_t packet = 0;
-  uint8_t checksum = 0;
-
-  if (value == 0) {}
-  else if (value < 48){
-    value = 48;
-  } else if (value > 2047){
-    value = 2047;
-  }
-
-  packet = value << 1;
-  checksum = getDshotChecksum(packet);
-  packet = (packet<<4)|checksum;
-  fillDshotBuffer(packet);
-  writeDshot();
-}
-
-void dshotOut(uint16_t value, uint8_t motor){
+void dshotOut(uint16_t value, uint8_t motor = 1, bool codeOverride = false){
   uint16_t packet = 0;
   uint8_t checksum = 0;
 
   if(motor == 1){
-    FTM_PINCFG(ESC_2_PIN) = FTM_PINCFG(ESC_2_PIN) & ~PORT_PCR_MUX(4); //motor 2 pin off
-    FTM_PINCFG(ESC_1_PIN) = FTM_PINCFG(ESC_1_PIN) | PORT_PCR_MUX(4); //motor 1 pin on
+    dma.destination(FTM0_C2V);
   }
   else if(motor == 2){
-    FTM_PINCFG(ESC_1_PIN) = FTM_PINCFG(ESC_1_PIN) & ~PORT_PCR_MUX(4); //motor 1 pin off
-    FTM_PINCFG(ESC_2_PIN) = FTM_PINCFG(ESC_2_PIN) | PORT_PCR_MUX(4); //motor 2 pin on
+    dma.destination(FTM0_C3V);
   }
   else return;
 
-  if (value == 0) {}
+  if(codeOverride || value == 0) {}
   else if (value < 48){
     value = 48;
   } else if (value > 2047){
@@ -176,6 +153,12 @@ void dshotOut(uint16_t value, uint8_t motor){
   packet = (packet<<4)|checksum;
   fillDshotBuffer(packet);
   writeDshot();
+}
+
+void dshotThrottle(uint16_t value){
+  lastDshotMotorValue = value;
+  dshotUpdated = true;
+  dshotOut(value+47);
 }
 
 uint16_t readDshot(void){
