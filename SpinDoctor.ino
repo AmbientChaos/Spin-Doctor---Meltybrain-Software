@@ -1,5 +1,4 @@
 #include <CPPM-RX.h>
-#include "dshot.h"
 
 //define pins
 #define GREEN 23
@@ -7,19 +6,22 @@
 #define ACCEL_SCL 19
 #define ACCEL_SDA 18
 #define ACCEL_NEW 17
-#define ACCEL_FLIP 16
-#define ESC_DSHOT 15
-#define RX_CPPM 14
+#define RX_CPPM 16
+#define ESC_1 9 //FTM0_CH2
+#define ESC_2 10 //FTM0_CH3
 
 //define states
 #define STATE_STARTUP 0
 #define STATE_IDLE 1
 #define STATE_CALIBRATE 2
 #define STATE_CALIBRATE_EXIT 3
-#define STATE_MELTY 4
-#define STATE_MAX_SPIN 5
+#define STATE_DRIVE 4
+#define STATE_MELTY 5
+#define STATE_MAX_SPIN 6
 byte state = STATE_STARTUP;
 byte prevState = STATE_STARTUP;
+
+bool enableDrive = false;
 
 //receiver variables
 bool sticksNew = false;
@@ -32,8 +34,12 @@ byte recGear = 0;
 byte recFlap = 0;
 
 //accelerometer variables
-bool accelNew = false;
-int16_t zAccel; //radial acceleration - used to measure rotation speed
+bool accelNew = true;
+const byte arraySize = 2; //2 for triangular integration
+unsigned long accelTime[arraySize] = {0}; //time between accelerometer measurements
+uint16_t degreePeriod[arraySize] = {0}; //period in microseconds per degree
+uint16_t accelAngle[arraySize] = {0}; //current angle calculated from accelerometer
+int16_t zAccel;
 int8_t flipped = 1; //1 for rightside-up, -1 for upside down
 
 //calibration variables
@@ -46,6 +52,7 @@ int16_t accelCalB = 0;
 int16_t accelCalC = 0;
 
 //melty variables
+byte throtCurrent = 0;
 uint16_t movementDirection = 0;
 uint16_t movementSpeed = 0;
 
@@ -63,8 +70,10 @@ void setup() {
   pinMode(RED, OUTPUT);
 
   //setup ESC DShot out
-  pinMode(ESC_DSHOT, OUTPUT);
-  digitalWrite(ESC_DSHOT, LOW);
+  pinMode(ESC_1, OUTPUT);
+  digitalWrite(ESC_1, LOW);
+  pinMode(ESC_2, OUTPUT);
+  digitalWrite(ESC_2, LOW);
   setupDshotDMA();
 
   //setup watchdog
@@ -82,6 +91,9 @@ void loop() {
 
   //check for switch changes and resulting state changes
   if (switchesNew) stateChange();
+
+  //get any new accelerometer data
+  if(accelNew) runAccel();
 
   switch (state) {
     case STATE_STARTUP:
@@ -114,6 +126,10 @@ void loop() {
       writeCalibration();
       break;
 
+    case STATE_DRIVE:
+
+      break;
+    
     case STATE_MELTY:
       //both red and green LED solid while not spinning to show melty mode
       runMelty();
@@ -136,13 +152,15 @@ void stateChange() {
   switchesNew = false;
   prevState = state;
   //safe state if transmitter connection is lost
-  if (RX_Fail()) state = STATE_STARTUP;
+  if (signalLost()) state = STATE_STARTUP;
   //idle if both switches off
   else if (recFlap <= 50 && recGear <= 50) state = STATE_IDLE;
   //calibrate if gear switch is on but flap switch is off
   else if (recFlap <= 50 && recGear > 50) state = STATE_CALIBRATE;
-  //melty if flap switch is on and throttle is low
-  else if (recFlap > 50 && recGear <= 50 && recThrot < 10) state = STATE_MELTY;
+  //drive if flap switch is on and throttle is down
+  else if (recFlap > 50 && recGear <= 50 && recThrot <= 10 && enableDrive) state = STATE_DRIVE;
+  //melty if flap switch is on and throttle is up
+  else if (recFlap > 50 && recGear <= 50 && recThrot > 10) state = STATE_MELTY;
   //max spin if both switches on
   else if (recFlap > 50 && recGear > 50) state = STATE_MAX_SPIN;
 
