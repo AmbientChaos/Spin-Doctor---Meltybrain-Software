@@ -31,9 +31,7 @@ unsigned long accelTimer = micros();
       //5 second red blink warning before starting
         //elevator low to cancel
       //slow blink green light until complete
-      //start at 5% throttle
-      //use rudder right to increase throttle until spin is achieved
-      //record min throttle
+      //start at 10% throttle
       //slowly increases throttle until accelerometer saturates
       //record max throttle
     //2 - accel calibration routine
@@ -84,7 +82,7 @@ void calibrateSelect(){
   digitalWrite(RED, HIGH);
   calSelectBlink();
   //rudder right to go to next cal state
-  if(recRudd > 80){
+  if(recRudd > 800){
     if(millis() - debounceTimer > 750) {
       debounceTimer = millis();
       selectedState++;
@@ -92,7 +90,7 @@ void calibrateSelect(){
     }
   }
   //rudder left to go to prev cal state
-  else if(recRudd < 20){
+  else if(recRudd < 200){
     if(millis() - debounceTimer > 750) {
       debounceTimer = millis();
       selectedState--;
@@ -100,7 +98,7 @@ void calibrateSelect(){
     }
   }
   //elevator up to select current cal state
-  else if(recElev > 80) {
+  else if(recElev > 800) {
     if (millis() - debounceTimer > 750) {
       debounceTimer = millis();
       calState = selectedState;
@@ -111,16 +109,12 @@ void calibrateSelect(){
 }
   
 void calibrateThrot(){
-  static uint16_t calThrot = 5;
-  static bool minSet = false;
-  static uint16_t throt;
+  static uint16_t throt = 100;
   //1 - throttle calibration routine
     //5 second red blink warning before starting
       //elevator low to cancel
     //slow blink green light until complete
-    //start at 5% throttle
-    //use rudder right to increase throttle until spin is achieved
-    //elevator low to record min throttle
+    //start at 10% throttle
     //slowly increases throttle until accelerometer saturates
     //record max throttle
 
@@ -132,46 +126,20 @@ void calibrateThrot(){
     blinkTimer = millis();
     digitalWrite(GREEN, !digitalRead(GREEN));
   }
-  //manual setting of minimum throttle
-  if(!minSet){ 
-    //rudder right to increase minimum throttle
-    if(recRudd > 80){
-      if(millis() - debounceTimer > 750) {
-        debounceTimer = millis();
-        throtMin++;
-      }
+  //increase throttle by 1% in 1 second intervals
+  if(millis() - calibrateTimer > 1000) {
+    //record max throttle when accelerometer reaches maximum
+    if(zAccel >= 2045){
+      throtMax = throt - 20;
+      calState = STATE_CAL_SELECT;
+      throt = 0;
     }
-    //rudder left to decrease minimum throttle
-    else if(recRudd < 20){
-      if(millis() - debounceTimer > 750) {
-        debounceTimer = millis();
-        throtMin--;
-      }
-    }
-    //elevator down to save minimum throttle
-    else if(recElev < 20){
-      calibrateTimer = millis();
-      minSet = true;
-    }
-    //set throttle at current minimum throttle setting
-    throt = throtMin;
-  }
-  //Automatic setting of max throttle
-  else {
-    //increase throttle by 1% in 1 second intervals
-    if(millis() - calibrateTimer > 1000) {
-      //record max throttle when accelerometer reaches maximum
-      if(zAccel >= 2045){
-        throtMax = throt - 1;
-        calState = STATE_CAL_SELECT;
-        minSet = false;
-      }
-      calibrateTimer = millis();
-      throt++;
-    }
+    calibrateTimer = millis();
+    throt += 10;
   }
   //run motor at current throttle setting
-  setMotor(throt);
+  setMotor(flipped * throt, 1);
+  setMotor(flipped * throt, 2);
 }
 
 void calibrateAccel(){
@@ -231,7 +199,7 @@ void calibrateAccel(){
     //check for inputs to set period
     //rudder right to decrease blink speed (increase period)
     //should make light move more in direction of rotation
-    if(recRudd > 80){
+    if(recRudd > 800){
       if(millis() - debounceTimer > 250) {
         debounceTimer = millis();
         calPeriod[i]++;
@@ -239,7 +207,7 @@ void calibrateAccel(){
     }
     //rudder right to increase blink speed (decrease period)
     //should make light move more against direction of rotation
-    else if(recRudd < 20){
+    else if(recRudd < 200){
       if(millis() - debounceTimer > 250) {
         debounceTimer = millis();
         calPeriod[i]--;
@@ -247,7 +215,7 @@ void calibrateAccel(){
     }
     //elevator down to move to the next measurement speed
     //moves to calculation after last measurement
-    else if(recElev < 20){
+    else if(recElev < 200){
       if(millis() - debounceTimer > 750) {
         debounceTimer = millis();
         calAccel[i] = zAccel;
@@ -279,7 +247,8 @@ void calibrateAccel(){
     calState = STATE_CAL_SELECT;
     calFinished = false;
   }
-  setMotor(throt);
+  setMotor(flipped * throt, 1);
+  setMotor(flipped * throt, 2);
 }
 
 void calibrateLight(){
@@ -302,7 +271,7 @@ void calibrateLight(){
   if(!calibrateRunning) return;
 
   //elevator low to start/stop movement
-  if(recElev < 20) {
+  if(recElev < 200) {
     if(millis() - debounceTimer > 750){
       debounceTimer = millis();
       moving = !moving;
@@ -310,7 +279,7 @@ void calibrateLight(){
   }
 
   //rudder left to decrease offset
-  else if(recRudd < 20) {
+  else if(recRudd < 200) {
     if(millis() - debounceTimer > 200){
       debounceTimer = millis();
       lightOffset = (lightOffset - 1) % 360;
@@ -318,7 +287,7 @@ void calibrateLight(){
   }
 
   //rudder right to increase offset
-  else if(recRudd > 80) {
+  else if(recRudd > 800) {
     if(millis() - debounceTimer > 200){
       debounceTimer = millis();
       lightOffset = (lightOffset + 1) % 360;
@@ -326,7 +295,7 @@ void calibrateLight(){
   }
 
   //aileron left to rotate heading left
-  else if(recAiler < 20) {
+  else if(recAiler < 200) {
     if(millis() - debounceTimer > 10){
       debounceTimer = millis();
       for (int i = 0; i < arraySize; i++) {
@@ -336,7 +305,7 @@ void calibrateLight(){
   }
 
   //aileron right to rotate heading right
-  else if(recAiler > 80) {
+  else if(recAiler > 800) {
     if(millis() - debounceTimer > 10){
       debounceTimer = millis();
       for (int i = 0; i < arraySize; i++) {
@@ -346,12 +315,13 @@ void calibrateLight(){
   }
 
   //throttle high to save calibration and exit
-  else if(recThrot > 80) {
+  else if(recThrot > 800) {
     if(millis() - debounceTimer > 750){
       debounceTimer = millis();
       calState = STATE_CAL_SELECT;
       moving = false;
-      setMotor(0);
+      setMotor(0, 1);
+      setMotor(0, 2);
       return;
     }
   }
@@ -366,7 +336,7 @@ void calibrateLight(){
       }
     }
     else {
-      movementSpeed = 100;
+      movementSpeed = 500;
       //move forward 1 sec then pause
       if(forward){
         movementDirection = 0;
@@ -387,6 +357,7 @@ void calibrateLight(){
       }
     }
   }
+  throtCurrent = 667;
   getAngle();
   meltLights();
   meltMove();
@@ -442,7 +413,7 @@ void calWarningBlink(){
       digitalWrite(RED, !digitalRead(RED));
     }
     //elevator low to cancel calibration
-    if(recElev < 20) {
+    if(recElev < 200) {
       calState = STATE_CAL_SELECT;
       digitalWrite(RED, LOW);
       digitalWrite(GREEN, LOW);
@@ -477,26 +448,24 @@ void regression(uint16_t x[], uint32_t y[], uint16_t shift){
 void readCalibration(){
   //check that data is valid and read in saved calibration data from EEPROM
   if(EEPROM.read(0) == 42) {
-    throtMin = EEPROM.read(1);
-    throtMax = EEPROM.read(2);
-    lightOffset = EEPROM.read(3) | EEPROM.read(4) << 8;
-    accelCalA = EEPROM.read(5) | EEPROM.read(6) << 8;
-    accelCalB = EEPROM.read(7) | EEPROM.read(8) << 8;
-    accelCalC = EEPROM.read(9) | EEPROM.read(10) << 8;
+    throtMax = EEPROM.read(1);
+    lightOffset = EEPROM.read(2) | EEPROM.read(3) << 8;
+    accelCalA = EEPROM.read(4) | EEPROM.read(5) << 8;
+    accelCalB = EEPROM.read(6) | EEPROM.read(7) << 8;
+    accelCalC = EEPROM.read(8) | EEPROM.read(9) << 8;
   }
 }
 
 void writeCalibration(){
   //write validation byte and calibration data to EEPROM
   EEPROM.update(0, 42);
-  EEPROM.update(1, throtMin);
-  EEPROM.update(2, throtMax);
+  EEPROM.update(1, throtMax);
+  EEPROM.update(2, lowByte(lightOffset));
   EEPROM.update(3, highByte(lightOffset));
-  EEPROM.update(4, lowByte(lightOffset));
+  EEPROM.update(4, lowByte(accelCalA));
   EEPROM.update(5, highByte(accelCalA));
-  EEPROM.update(6, lowByte(accelCalA));
+  EEPROM.update(6, lowByte(accelCalB));
   EEPROM.update(7, highByte(accelCalB));
-  EEPROM.update(8, lowByte(accelCalB));
+  EEPROM.update(8, lowByte(accelCalC));
   EEPROM.update(9, highByte(accelCalC));
-  EEPROM.update(10, lowByte(accelCalC));
 }

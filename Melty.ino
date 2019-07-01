@@ -1,6 +1,6 @@
-byte throtCurrent = 0;
 uint16_t currentAngle = 0;
-unsigned long lastMotorSend = micros();
+unsigned long lastMotorSend1 = micros();
+unsigned long lastMotorSend2 = micros();
 
 void runMelty() {
   getSticks();
@@ -13,7 +13,8 @@ void runMelty() {
   }
   //throttle too low for translation, shut off motor
   else { 
-    setMotor(0);
+    setMotor(0, 1);
+    setMotor(0, 2);
     digitalWrite(GREEN, HIGH);
     digitalWrite(RED, HIGH);
   }
@@ -23,9 +24,9 @@ void getSticks() {
   //calculate melty inputs from receiver
   if (sticksNew) { 
     sticksNew = false;
-    movementSpeed = max(100, (int)hypot(recAiler - 50, recElev - 50));
-    movementDirection = (atan2(recAiler * flipped, recElev) * 4068) / 71; //deg = rad * 4068 / 71
-    throtCurrent = recThrot * throtMax / 100;
+    movementSpeed = max(500, (int)hypot(recAiler - 500, recElev - 500));
+    movementDirection = (atan2((recAiler - 500) * flipped, recElev - 500) * 4068) / 71; //deg = rad * 4068 / 71
+    throtCurrent = recThrot * throtMax / 1000;
     trimAngle();
   }
 }
@@ -40,7 +41,7 @@ void getAngle() {
       accelAngle[i] = accelAngle[i - 1];
     }
     //give up if accel too low
-    if (zAccel < 400) { 
+    if (zAccel < 100) { 
       accelAngle[0] = 0;
       currentAngle = accelAngle[0];
     }
@@ -53,7 +54,7 @@ void getAngle() {
   }
   //predict the angle between accel readings by extrapolating from old data
   else { 
-    if (zAccel >= 400) {
+    if (zAccel >= 100) {
       uint16_t newTime = micros();
       uint16_t periodPredicted = degreePeriod[1] + (newTime - accelTime[1]) 
           * (degreePeriod[0] - degreePeriod[1]) / (accelTime[0] - accelTime[1]);
@@ -67,7 +68,7 @@ void getAngle() {
 void trimAngle() {
   //use rudder to rotate heading direction
   int16_t angleTrim;
-  angleTrim = (recRudd - 50) / 50;
+  angleTrim = (recRudd - 500) / 200;
   for (int i = 0; i < arraySize; i++) {
     accelAngle[i] = (accelAngle[i] + angleTrim) % 360;
   }
@@ -83,41 +84,51 @@ void meltLights() {
     digitalWrite(GREEN, LOW);
   }
   //turn on red ligth if its position is in the stick direction
-  if ((currentAngle + lightOffset) % 360 <= (movementDirection + 10) % 360 
-      && (currentAngle + lightOffset) % 360 >= (movementDirection - 10) % 360) {
-    digitalWrite(RED, HIGH);
-  }
-  else {
-    digitalWrite(RED, LOW);
+  if (movementSpeed > 50) {
+    if ((currentAngle + lightOffset) % 360 <= (movementDirection + 10) % 360 
+        && (currentAngle + lightOffset) % 360 >= (movementDirection - 10) % 360) {
+      digitalWrite(RED, HIGH);
+    }
+    else {
+      digitalWrite(RED, LOW);
+    }
   }
 }
 
 void meltMove() {
   static int16_t diff;
   //translate if stick is moved enough
-  if (movementSpeed > 15) {
+  if (movementSpeed > 50) {
     diff = 180 - abs(abs(movementDirection - currentAngle) - 180);
     //speed up motor if moving toward movement direction
     if (diff < 90) {
-      setMotor(flipped * (throtCurrent + 20));
+      setMotor(flipped * (throtCurrent + 200), 1);
+      setMotor(flipped * (throtCurrent - 200), 2);
     }
     //slow down motor if moving away from movement direction
     else {
-      setMotor(flipped * (max(throtCurrent - 20, throtMin)));
+      setMotor(flipped * (throtCurrent - 200), 1);
+      setMotor(flipped * (throtCurrent + 200), 2);
     }
   }
   //spin in place if no stick movement
   else {
-    setMotor(flipped * throtCurrent);
+    setMotor(flipped * throtCurrent, 1);
+    setMotor(flipped * throtCurrent, 2);
   }
 }
 
-void setMotor(uint16_t throttle) {
-  //send DShot command based on 0-100% throttle input
-  //limit max update rate to 4kHz
-  if (lastMotorSend - micros() >= 250) { 
-    if (throttle == 0) dshotThrottle(0);
-    else dshotThrottle(throttle * 999 / 100 + 1047);
-    lastMotorSend = micros();
+void setMotor(int16_t value, uint8_t motor = 1) {
+  //send DShot command based on -1000 to 1000 throttle input
+  //limit max update rate to 4kHz, min 25us between motors
+  if (((motor == 1) && (micros() - lastMotorSend1 >= 250) &&(micros() - lastMotorSend2 >= 25)) 
+    ||((motor == 2) && (micros() - lastMotorSend2 >= 250) &&(micros() - lastMotorSend1 >= 25))) { 
+    if(value == 0) dshotOut(value, motor);
+    else {
+      if(value > 0) dshotOut(value * 1 + 1047, motor);
+      else if(value < 0) dshotOut(value * -1 + 47, motor);
+    }
+    if(motor == 1) lastMotorSend1 = micros();
+    else if(motor == 2) lastMotorSend2 = micros();
   }
 }

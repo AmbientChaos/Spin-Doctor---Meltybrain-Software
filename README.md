@@ -1,6 +1,6 @@
 # Spin-Doctor---Meltybrain-Software
 
-**Currently mostly untested, pending arrival and assembly of the hardware components.**
+**Accelerometer, receiver, and DShot components all tested and functioning, main program untested.**
 
 Thanks to [@swallenhardware](https://github.com/swallenhardware) for providing his code and build log which helped make this possible
 
@@ -12,7 +12,7 @@ Thanks to [@swallenhardware](https://github.com/swallenhardware) for providing h
 
 [CPPM-RX](https://github.com/daPhoosa/CPPM-RX)
 
-[bladeBench](https://github.com/Extent421/bladeBench) DShot routines, updated for Teensy pins
+[bladeBench](https://github.com/Extent421/bladeBench) DShot routines, updated for dual motor control and motor off commands
 
 ## Hardware used:
 
@@ -29,15 +29,15 @@ DShot600 compatible ESC
 ## Usage:
 The gear and flap switches are used to determine the operating mode, with a safe mode for signal loss or startup in active modes
 
-**Gear:** *N/A*   **Flaps:** *N/A*   **Mode:** safe mode       **Lights:** Fast green flashing **Notes:** Signal loss or started in mode other than idle, motor off
+**Gear:** *N/A* **Flaps:** *N/A* **Mode:** safe mode        **Lights:** Fast green flashing **Notes:** Signal loss or started in mode other than idle, motor off
 
-**Gear:** *off*   **Flaps:** *off*   **Mode:** idle mode       **Lights:** Solid green         **Notes:** Connected, motor off
+**Gear:** *off* **Flaps:** *off* **Mode:** idle mode        **Lights:** Solid green         **Notes:** Connected, motor off
 
-**Gear:** *off*   **Flaps:** *on*    **Mode:** melty mode      **Lights:** Solid red and green **Notes:** Green and red lights indicate reference and movement directions respectively
+**Gear:** *off* **Flaps:** *on*  **Mode:** drive/melty mode **Lights:** Solid red and green **Notes:** Green and red lights indicate reference and movement directions respectively
 
-**Gear:** *on*    **Flaps:** *off*   **Mode:** calibrate mode  **Lights:** Solid red           **Notes:** Lights differ in different calibrations
+**Gear:** *on*  **Flaps:** *off* **Mode:** calibrate mode   **Lights:** Solid red           **Notes:** Lights differ in different calibrations
 
-**Gear:** *on*    **Flaps:** *on*    **Mode:** max spin mode   **Lights:** Solid red           **Notes:** Only available while spinning in melty mode
+**Gear:** *on*  **Flaps:** *on*  **Mode:** max spin mode    **Lights:** Solid red           **Notes:** Only available while spinning in melty mode
 
 #### Safe mode:
 Only entered before connecting and setting switches for idle mode and during signal loss.
@@ -47,8 +47,8 @@ Motors set off.  Safe mode after powerup.
 #### Idle mode:
 Motors set off.  Safe mode after powerup.
 
-#### Melty mode:
-Throttle up to begin MeltyBrain drive.
+#### Drive/Melty mode:
+Throttle down for drive mode, throttle up to begin MeltyBrain drive.
 
 Green light blinks for persistance of vision while spinning to indicate the heading of the robot.  The green lights are meant to be pointed away from the user as a point of reference, so the bot can then translate based on the receiver inputs.
 
@@ -76,17 +76,13 @@ Return switches to idle mode positions with throttle up to save current calibrat
 
     5 second red warning flash before starting motor, elevator down to cancel
 
-    Use rudder to increase/decrease motor speed to minimum necessary for spinup
-
-    Elevator down to save
-
     Automatic slow throttle up until accelerometer saturates, then stops spinning
   
 ##### 2 - Accelerometer Ccalibration
     
     5 second red warning flash before starting motor, elevator down to cancel
     
-    Starts spinning at slow speed from throttle calibration
+    Starts spinning at slow speed 
     
     Green light blinks at fixed interval
     

@@ -21,17 +21,14 @@
 byte state = STATE_STARTUP;
 byte prevState = STATE_STARTUP;
 
-bool enableDrive = false;
-
 //receiver variables
 bool sticksNew = false;
-bool switchesNew = false;
-byte recThrot = 0;
-byte recRudd = 0;
-byte recElev = 0;
-byte recAiler = 0;
-byte recGear = 0;
-byte recFlap = 0;
+uint16_t recThrot = 0;
+uint16_t recRudd = 500;
+uint16_t recElev = 500;
+uint16_t recAiler = 500;
+uint16_t recGear = 0;
+uint16_t recFlap = 0;
 
 //accelerometer variables
 bool accelNew = true;
@@ -39,24 +36,28 @@ const byte arraySize = 2; //2 for triangular integration
 unsigned long accelTime[arraySize] = {0}; //time between accelerometer measurements
 uint16_t degreePeriod[arraySize] = {0}; //period in microseconds per degree
 uint16_t accelAngle[arraySize] = {0}; //current angle calculated from accelerometer
-int16_t zAccel;
+int16_t zAccel; //centrifugal force, +/-2047 scale for +/-400G
 int8_t flipped = 1; //1 for rightside-up, -1 for upside down
 
 //calibration variables
 bool calibrateRunning = false;
-byte throtMin = 5;
-byte throtMax = 50;
+uint16_t throtMin = 100;
+uint16_t throtMax = 500;
 uint16_t lightOffset = 50; //angle between lights and "front", which is 90 deg offset from the motor axle
 int16_t accelCalA = 0;
 int16_t accelCalB = 0;
 int16_t accelCalC = 0;
 
 //melty variables
-byte throtCurrent = 0;
+uint16_t throtCurrent = 0;
 uint16_t movementDirection = 0;
 uint16_t movementSpeed = 0;
 
 unsigned long blinkTimer = millis();
+
+//prototypes for functions in different tabs
+void dshotOut(uint16_t value, uint8_t motor = 1);
+void setMotor(int16_t value, uint8_t motor = 1);
 
 void setup() {
   //setup receiver interrupt
@@ -75,6 +76,8 @@ void setup() {
   pinMode(ESC_2, OUTPUT);
   digitalWrite(ESC_2, LOW);
   setupDshotDMA();
+  dshotOut(0, 1); //arm motor
+  dshotOut(0, 2); //arm motor
 
   //setup watchdog
   watchdogSetup();
@@ -87,13 +90,14 @@ void loop() {
   feedWatchdog();
 
   //check for new receiver inputs
-  if (AilerNew()) readReceiver();
-
-  //check for switch changes and resulting state changes
-  if (switchesNew) stateChange();
+  if (Aux1New()){
+    readReceiver();
+    //check for state changes
+    stateChange();
+  }
 
   //get any new accelerometer data
-  if(accelNew) runAccel();
+  if (accelNew) runAccel();
 
   switch (state) {
     case STATE_STARTUP:
@@ -101,9 +105,11 @@ void loop() {
       if (millis() - blinkTimer > 200) {
         blinkTimer = millis();
         digitalWrite(GREEN, !digitalRead(GREEN));
+        digitalWrite(RED, LOW);
       }
       //send motor stop command
-      setMotor(0);
+      setMotor(0, 1);
+      setMotor(0, 2);
       break;
 
     case STATE_IDLE:
@@ -111,7 +117,8 @@ void loop() {
       digitalWrite(RED, LOW);
       digitalWrite(GREEN, HIGH);
       //Send motor stop command
-      setMotor(0);
+      setMotor(0, 1);
+      setMotor(0, 2);
       break;
 
     case STATE_CALIBRATE:
@@ -122,14 +129,18 @@ void loop() {
     case STATE_CALIBRATE_EXIT:
       //exit calibration with throttle high to save new calibration data
       calibrateRunning = false;
-      if (recThrot < 50) break;
+      if (recThrot < 500) break;
       writeCalibration();
       break;
 
     case STATE_DRIVE:
-
+      //both red and green LED solid while not spinning to show melty mode
+      getSticks();
+      uint16_t radDirection = movementDirection * 71 / 4068;
+      setMotor(flipped * (movementSpeed * 2 * (sin(radDirection) + cos(radDirection)) / 5), 1);
+      setMotor(flipped * (movementSpeed * 2 * (sin(radDirection) - cos(radDirection)) / 5), 1);
       break;
-    
+
     case STATE_MELTY:
       //both red and green LED solid while not spinning to show melty mode
       runMelty();
@@ -138,8 +149,10 @@ void loop() {
     case STATE_MAX_SPIN:
       //red LED constant on to show max spin mode
       digitalWrite(RED, HIGH);
+      digitalWrite(GREEN, LOW);
       //send motor commands
-      setMotor(flipped * 100);
+      setMotor(flipped * 1000, 1);
+      setMotor(flipped * 1000, 2);
       break;
 
     default:
@@ -149,20 +162,19 @@ void loop() {
 
 void stateChange() {
   //check switches to determine program state to transition to
-  switchesNew = false;
   prevState = state;
   //safe state if transmitter connection is lost
   if (signalLost()) state = STATE_STARTUP;
   //idle if both switches off
-  else if (recFlap <= 50 && recGear <= 50) state = STATE_IDLE;
+  else if (recFlap <= 500 && recGear <= 500) state = STATE_IDLE;
   //calibrate if gear switch is on but flap switch is off
-  else if (recFlap <= 50 && recGear > 50) state = STATE_CALIBRATE;
+  else if (recFlap <= 500 && recGear > 500) state = STATE_CALIBRATE;
   //drive if flap switch is on and throttle is down
-  else if (recFlap > 50 && recGear <= 50 && recThrot <= 10 && enableDrive) state = STATE_DRIVE;
+  else if (recFlap > 500 && recGear <= 500 && recThrot < 100) state = STATE_DRIVE;
   //melty if flap switch is on and throttle is up
-  else if (recFlap > 50 && recGear <= 50 && recThrot > 10) state = STATE_MELTY;
+  else if (recFlap > 500 && recGear <= 500 && recThrot >= 100) state = STATE_MELTY;
   //max spin if both switches on
-  else if (recFlap > 50 && recGear > 50) state = STATE_MAX_SPIN;
+  else if (recFlap > 500 && recGear > 500) state = STATE_MAX_SPIN;
 
   //check state transitions
   //startup can only exit to idle when both switches off
@@ -173,7 +185,7 @@ void stateChange() {
     else state = STATE_CALIBRATE;
   }
   //Max spin mode cannot be entered at low throttle to prevent accidents
-  else if (prevState == STATE_MELTY && state == STATE_MAX_SPIN && recThrot < 33) state = STATE_MELTY;
+  else if (prevState == STATE_MELTY && state == STATE_MAX_SPIN && recThrot < 250) state = STATE_MELTY;
   //max spin mode can only exit to melty mode or idle
   else if (prevState == STATE_MAX_SPIN && state != STATE_MAX_SPIN) {
     if (state == STATE_MELTY || state == STATE_IDLE);

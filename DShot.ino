@@ -70,9 +70,6 @@ SOFTWARE.*/
 DMAChannel dma;
 
 uint8_t dshotCommandBuffer[DSHOT_BUFFER_LENGTH];
-uint16_t lastDshotMotorValue = 0;
-
-bool dshotUpdated = false;
 
 void setupDshotDMA(void){
   //for  (__MK64FX512__) (__MK66FX1M0__)
@@ -129,22 +126,25 @@ void fillDshotBuffer(uint16_t value){
   }
 }
 
-void dshotOut(uint16_t value, uint8_t motor = 1, bool codeOverride = false){
+void dshotOut(uint16_t value, uint8_t motor = 1){
   uint16_t packet = 0;
   uint8_t checksum = 0;
 
   if(motor == 1){
     dma.destination(FTM0_C2V);
+    dma.transferSize(1);
   }
   else if(motor == 2){
     dma.destination(FTM0_C3V);
+    dma.transferSize(1);
   }
   else return;
 
-  if(codeOverride || value == 0) {}
+  if(value == 0) {}
   else if (value < 48){
     value = 48;
-  } else if (value > 2047){
+  } 
+  else if (value > 2047){
     value = 2047;
   }
 
@@ -153,22 +153,4 @@ void dshotOut(uint16_t value, uint8_t motor = 1, bool codeOverride = false){
   packet = (packet<<4)|checksum;
   fillDshotBuffer(packet);
   writeDshot();
-}
-
-void dshotThrottle(uint16_t value){
-  lastDshotMotorValue = value;
-  dshotUpdated = true;
-  dshotOut(value+47);
-}
-
-uint16_t readDshot(void){
-  return lastDshotMotorValue;
-}
-
-bool getDshotUpdated(void){
-  return dshotUpdated;
-}
-
-void resetDshotUpdated(void){
-  dshotUpdated = false;
 }
