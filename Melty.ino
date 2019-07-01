@@ -24,7 +24,7 @@ void getSticks() {
   //calculate melty inputs from receiver
   if (sticksNew) { 
     sticksNew = false;
-    movementSpeed = max(500, (int)hypot(recAiler - 500, recElev - 500));
+    movementSpeed = min(500, (int)hypot(recAiler - 500, recElev - 500));
     movementDirection = (atan2((recAiler - 500) * flipped, recElev - 500) * 4068) / 71; //deg = rad * 4068 / 71
     throtCurrent = recThrot * throtMax / 1000;
     trimAngle();
